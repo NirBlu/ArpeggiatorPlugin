@@ -101,4 +101,4 @@ This project is licensed under the ISC License. See the [LICENSE](./LICENSE) fil
 
 ---
 
-This README provides a clear setup guide, ensuring users can install and use the plugin seamlessly. Let me know if there’s anything else you’d like to add!
+
