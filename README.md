@@ -1,7 +1,7 @@
 
 # Arpeggiator Plugin
 
-An advanced MIDI arpeggiator plugin built with the DISTRHO Plugin Framework (DPF). This plugin provides highly customizable arpeggiation, allowing musicians to shape MIDI notes with flexible speed, patterns, and octave control.
+A simple MIDI arpeggiator plugin built with the DISTRHO Plugin Framework (DPF). This plugin provides highly customizable arpeggiation, allowing musicians to shape MIDI notes with flexible speed, patterns, and octave control.
 
 ## Features
 
