@@ -1,5 +1,6 @@
 #include "DistrhoPlugin.hpp"
 #include <vector>
+#include <unordered_set>
 #include <algorithm>
 #include <chrono>
 
@@ -9,7 +10,7 @@ class ArpeggiatorPlugin : public Plugin
 {
 public:
     ArpeggiatorPlugin()
-        : Plugin(4, 0, 0), speed(120.0f), pattern(0), octaveRange(1), noteIndex(0), repeatCount(0), stop(false)
+        : Plugin(5, 0, 0), speed(120.0f), speedMultiplier(1.0f), pattern(0), octaveRange(1), noteIndex(0), repeatCount(0), stop(false)
     {
         lastTimePoint = std::chrono::steady_clock::now();
         ascending = true;  // For ascend-descend patterns
@@ -19,7 +20,7 @@ protected:
     const char* getLabel() const override { return "Arpeggiator"; }
     const char* getDescription() const override { return "An arpeggiator plugin with customizable speed, pattern, octave range, and a stop button."; }
     const char* getMaker() const override { return "NirBlu"; }
-    const char* getHomePage() const override { return "https://github.com/YourRepo"; }
+    const char* getHomePage() const override { return "https://github.com/NirBlu/ArpeggiatorPlugin.git"; }
     const char* getLicense() const override { return "ISC"; }
     uint32_t getVersion() const override { return d_version(1, 0, 0); }
     int64_t getUniqueId() const override { return 0x12345678; }
@@ -27,22 +28,30 @@ protected:
     void initParameter(uint32_t index, Parameter& parameter) override {
         switch (index) {
             case 0: // Speed
-                parameter.hints = kParameterIsAutomatable;
+                parameter.hints = kParameterIsAutomatable | kParameterIsInteger;
                 parameter.name = "Speed";
                 parameter.symbol = "speed";
                 parameter.ranges.def = 120.0f;
                 parameter.ranges.min = 30.0f;
                 parameter.ranges.max = 693.0f;
                 break;
-            case 1: // Pattern
+            case 1: // Speed Multiplier
+                parameter.hints = kParameterIsAutomatable;
+                parameter.name = "Speed Multiplier";
+                parameter.symbol = "speed_multiplier";
+                parameter.ranges.def = 1.0f;
+                parameter.ranges.min = 0.1f;
+                parameter.ranges.max = 4.0f;
+                break;
+            case 2: // Pattern
                 parameter.hints = kParameterIsAutomatable | kParameterIsInteger;
                 parameter.name = "Pattern";
                 parameter.symbol = "pattern";
                 parameter.ranges.def = 0;
                 parameter.ranges.min = 0;
-                parameter.ranges.max = 5;  // Patterns: 0 = up, 1 = down, 2 = repeat-twice, 3 = ascend-descend, 4 = descend-ascend, 5 = repeat-thrice
+                parameter.ranges.max = 6;
                 break;
-            case 2: // Octave range
+            case 3: // Octave range
                 parameter.hints = kParameterIsAutomatable | kParameterIsInteger;
                 parameter.name = "Octave Range";
                 parameter.symbol = "octave_range";
@@ -50,7 +59,7 @@ protected:
                 parameter.ranges.min = 1;
                 parameter.ranges.max = 3;
                 break;
-            case 3: // Stop button
+            case 4: // Stop button
                 parameter.hints = kParameterIsBoolean;
                 parameter.name = "Stop";
                 parameter.symbol = "stop";
@@ -64,9 +73,10 @@ protected:
     float getParameterValue(uint32_t index) const override {
         switch (index) {
             case 0: return speed;
-            case 1: return pattern;
-            case 2: return octaveRange;
-            case 3: return stop ? 1.0f : 0.0f;
+            case 1: return speedMultiplier;
+            case 2: return pattern;
+            case 3: return octaveRange;
+            case 4: return stop ? 1.0f : 0.0f;
         }
         return 0.0f;
     }
@@ -74,9 +84,10 @@ protected:
     void setParameterValue(uint32_t index, float value) override {
         switch (index) {
             case 0: speed = value; break;
-            case 1: pattern = static_cast<int>(value); break;
-            case 2: octaveRange = static_cast<int>(value); break;
-            case 3: stop = (value > 0.5f); break;
+            case 1: speedMultiplier = value; break;
+            case 2: pattern = static_cast<int>(value); break;
+            case 3: octaveRange = static_cast<int>(value); break;
+            case 4: stop = (value > 0.5f); break;
         }
     }
 
@@ -97,32 +108,42 @@ protected:
 
             if (status == 0x90 && event.data[2] > 0) { // Note-On
                 chordNotes.push_back(note);
+                activeNotes.insert(note); // Track active notes
             } else if (status == 0x80 || (status == 0x90 && event.data[2] == 0)) { // Note-Off
                 chordNotes.erase(std::remove(chordNotes.begin(), chordNotes.end(), note), chordNotes.end());
+                activeNotes.erase(note); // Remove from active notes
                 sendNoteOff(note);
             }
         }
 
-        // Timing control based on speed
+        // Timing control based on speed and multiplier
         auto now = std::chrono::steady_clock::now();
-        double msPerBeat = 60000.0 / speed;
+        double msPerBeat = (60000.0 / (speed * speedMultiplier));
         if (std::chrono::duration_cast<std::chrono::milliseconds>(now - lastTimePoint).count() >= msPerBeat) {
             lastTimePoint = now;
 
             // Arpeggiate if there are notes in chordNotes
             if (!chordNotes.empty()) {
                 uint8_t noteToPlay = getNextNote();
-                sendNoteOn(noteToPlay);
+                if (activeNotes.count(noteToPlay) > 0) { // Play only if note is active
+                    for (int octave = 0; octave < octaveRange; ++octave) {
+                        sendNoteOn(noteToPlay + 12 * octave);
+                    }
+                } else {
+                    sendNoteOff(noteToPlay); // Stop if the note is no longer active
+                }
             }
         }
     }
 
 private:
     float speed;
+    float speedMultiplier;
     int pattern;
     int octaveRange;
     bool stop;
     std::vector<uint8_t> chordNotes;
+    std::unordered_set<uint8_t> activeNotes; // Track only held notes
     uint32_t noteIndex;
     int repeatCount;  // For repeat-twice and repeat-thrice patterns
     bool ascending;   // For ascend-descend and descend-ascend patterns
@@ -133,6 +154,7 @@ private:
             sendNoteOff(note);
         }
         chordNotes.clear();
+        activeNotes.clear();
         noteIndex = 0;
         repeatCount = 0;
         ascending = true;
@@ -160,18 +182,10 @@ private:
 
     uint8_t getNextNote() {
         switch (pattern) {
-            case 1: // Down pattern
+            case 1: // Descending pattern
                 noteIndex = (noteIndex == 0) ? chordNotes.size() - 1 : noteIndex - 1;
                 break;
-            case 2: // Repeat Twice pattern
-                if (repeatCount < 1) {
-                    repeatCount++;
-                } else {
-                    repeatCount = 0;
-                    noteIndex = (noteIndex + 1) % chordNotes.size();
-                }
-                break;
-            case 3: // Ascend-Descend pattern
+            case 2: // Ascend-Descend pattern
                 if (ascending) {
                     if (noteIndex < chordNotes.size() - 1) {
                         ++noteIndex;
@@ -188,7 +202,7 @@ private:
                     }
                 }
                 break;
-            case 4: // Descend-Ascend pattern
+            case 3: // Descend-Ascend pattern
                 if (!ascending) {
                     if (noteIndex > 0) {
                         --noteIndex;
@@ -205,6 +219,14 @@ private:
                     }
                 }
                 break;
+            case 4: // Repeat Twice pattern
+                if (repeatCount < 1) {
+                    repeatCount++;
+                } else {
+                    repeatCount = 0;
+                    noteIndex = (noteIndex + 1) % chordNotes.size();
+                }
+                break;
             case 5: // Repeat Thrice pattern
                 if (repeatCount < 2) {
                     repeatCount++;
@@ -213,7 +235,10 @@ private:
                     noteIndex = (noteIndex + 1) % chordNotes.size();
                 }
                 break;
-            default: // Up pattern (default)
+            case 6: // Played Order pattern
+                noteIndex = (noteIndex + 1) % chordNotes.size();
+                break;
+            default: // Ascending pattern
                 noteIndex = (noteIndex + 1) % chordNotes.size();
                 break;
         }

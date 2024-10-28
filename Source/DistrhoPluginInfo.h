@@ -12,5 +12,7 @@
 #define DISTRHO_PLUGIN_WANT_MIDI_INPUT 1
 #define DISTRHO_PLUGIN_WANT_MIDI_OUTPUT 1
 
+#define DISTRHO_PLUGIN_TAGS "MIDI", "Arpeggiator", "Effect", "Tool"
+
 #endif // DISTRHO_PLUGIN_INFO_H
 
