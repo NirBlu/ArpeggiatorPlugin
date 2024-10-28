@@ -13,7 +13,7 @@ public:
         : Plugin(5, 0, 0), speed(120.0f), speedMultiplier(1.0f), pattern(0), octaveRange(1), noteIndex(0), repeatCount(0), stop(false)
     {
         lastTimePoint = std::chrono::steady_clock::now();
-        ascending = true;  // For ascend-descend patterns
+        ascending = true;
     }
 
 protected:
@@ -107,11 +107,13 @@ protected:
             uint8_t note = event.data[1];
 
             if (status == 0x90 && event.data[2] > 0) { // Note-On
-                chordNotes.push_back(note);
+                if (std::find(chordNotes.begin(), chordNotes.end(), note) == chordNotes.end()) {
+                    chordNotes.push_back(note);  // Add note if not already present
+                }
                 activeNotes.insert(note); // Track active notes
             } else if (status == 0x80 || (status == 0x90 && event.data[2] == 0)) { // Note-Off
-                chordNotes.erase(std::remove(chordNotes.begin(), chordNotes.end(), note), chordNotes.end());
                 activeNotes.erase(note); // Remove from active notes
+                chordNotes.erase(std::remove(chordNotes.begin(), chordNotes.end(), note), chordNotes.end());
                 sendNoteOff(note);
             }
         }
@@ -122,15 +124,13 @@ protected:
         if (std::chrono::duration_cast<std::chrono::milliseconds>(now - lastTimePoint).count() >= msPerBeat) {
             lastTimePoint = now;
 
-            // Arpeggiate if there are notes in chordNotes
+            // Arpeggiate if there are active notes in chordNotes
             if (!chordNotes.empty()) {
                 uint8_t noteToPlay = getNextNote();
                 if (activeNotes.count(noteToPlay) > 0) { // Play only if note is active
                     for (int octave = 0; octave < octaveRange; ++octave) {
                         sendNoteOn(noteToPlay + 12 * octave);
                     }
-                } else {
-                    sendNoteOff(noteToPlay); // Stop if the note is no longer active
                 }
             }
         }
@@ -145,8 +145,8 @@ private:
     std::vector<uint8_t> chordNotes;
     std::unordered_set<uint8_t> activeNotes; // Track only held notes
     uint32_t noteIndex;
-    int repeatCount;  // For repeat-twice and repeat-thrice patterns
-    bool ascending;   // For ascend-descend and descend-ascend patterns
+    int repeatCount;
+    bool ascending;
     std::chrono::steady_clock::time_point lastTimePoint;
 
     void clearAllNotes() {
@@ -181,64 +181,45 @@ private:
     }
 
     uint8_t getNextNote() {
+        if (chordNotes.empty()) return 0;
+
         switch (pattern) {
+            case 0: // Ascending pattern
+                noteIndex = (noteIndex + 1) % chordNotes.size();
+                break;
             case 1: // Descending pattern
                 noteIndex = (noteIndex == 0) ? chordNotes.size() - 1 : noteIndex - 1;
                 break;
             case 2: // Ascend-Descend pattern
                 if (ascending) {
-                    if (noteIndex < chordNotes.size() - 1) {
-                        ++noteIndex;
-                    } else {
-                        ascending = false;
-                        --noteIndex;
-                    }
+                    if (noteIndex < chordNotes.size() - 1) ++noteIndex;
+                    else { ascending = false; --noteIndex; }
                 } else {
-                    if (noteIndex > 0) {
-                        --noteIndex;
-                    } else {
-                        ascending = true;
-                        ++noteIndex;
-                    }
+                    if (noteIndex > 0) --noteIndex;
+                    else { ascending = true; ++noteIndex; }
                 }
                 break;
             case 3: // Descend-Ascend pattern
                 if (!ascending) {
-                    if (noteIndex > 0) {
-                        --noteIndex;
-                    } else {
-                        ascending = true;
-                        ++noteIndex;
-                    }
+                    if (noteIndex > 0) --noteIndex;
+                    else { ascending = true; ++noteIndex; }
                 } else {
-                    if (noteIndex < chordNotes.size() - 1) {
-                        ++noteIndex;
-                    } else {
-                        ascending = false;
-                        --noteIndex;
-                    }
+                    if (noteIndex < chordNotes.size() - 1) ++noteIndex;
+                    else { ascending = false; --noteIndex; }
                 }
                 break;
             case 4: // Repeat Twice pattern
-                if (repeatCount < 1) {
-                    repeatCount++;
-                } else {
-                    repeatCount = 0;
-                    noteIndex = (noteIndex + 1) % chordNotes.size();
-                }
+                if (repeatCount < 1) repeatCount++;
+                else { repeatCount = 0; noteIndex = (noteIndex + 1) % chordNotes.size(); }
                 break;
             case 5: // Repeat Thrice pattern
-                if (repeatCount < 2) {
-                    repeatCount++;
-                } else {
-                    repeatCount = 0;
-                    noteIndex = (noteIndex + 1) % chordNotes.size();
-                }
+                if (repeatCount < 2) repeatCount++;
+                else { repeatCount = 0; noteIndex = (noteIndex + 1) % chordNotes.size(); }
                 break;
-            case 6: // Played Order pattern
+            case 6: // Played Order pattern (ascending)
                 noteIndex = (noteIndex + 1) % chordNotes.size();
                 break;
-            default: // Ascending pattern
+            default: // Default to ascending if undefined
                 noteIndex = (noteIndex + 1) % chordNotes.size();
                 break;
         }
